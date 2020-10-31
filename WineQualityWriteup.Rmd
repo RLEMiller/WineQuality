@@ -1,0 +1,33 @@
+---
+  title: "MovieLens Rating Prediction Using Machine Learning"
+author: "Rebecca L.E. Miller"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE, warning=FALSE, message=FALSE, echo=FALSE}
+if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
+if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
+if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.r-project.org")
+
+library(tidyverse)
+library(caret)
+library(data.table)
+```
+
+```{r DownloadFiles, echo=TRUE, message=FALSE}
+# download the red wine and white wine files to local temp files
+dl <- tempfile()
+dl1 <- tempfile()
+download.file("https://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/winequality-red.csv", dl)
+download.file("https://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/winequality-white.csv", dl1)
+
+# read the red wine quality file into a data frame
+red <- read.csv(file = dl, header = TRUE, sep = ";")
+
+# read the white wine quality file into a data frame
+white <- read.csv(file = dl1, header = TRUE, sep = ";")
+
+rm(dl)
+```
+
