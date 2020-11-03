@@ -13,12 +13,16 @@ if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-
 if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
 if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.r-project.org")
 if(!require(knitr)) install.packages("knitr", repos = "https://cran.us.r-project.org")
+if(!require(GGally)) install.packages("GGally", repos = "http://cran.us.r-project.org")
+if(!require(corrplot)) install.packages("corrplot", repos = "http://cran.us.r-project.org")
 
 library(knitr)
 library(tinytex)
 library(tidyverse)
 library(caret)
 library(data.table)
+library(GGally)
+library(corrplot)
 
 # don't show messages for tidy summarize() calls
 options(dplyr.summarise.inform = FALSE) 
@@ -83,17 +87,9 @@ Neither data set contains `NA` values.
   sum(is.na(white))
 ```
 
-The general range and distribution of the data can be seen with a simple summary.
+
 ```{r}
-  summary(red)
-  summary(white)
-```
-```{r}
-  library(GGally)
-  ggpairs(red)
-  
-  corrplot(cor(red), order = "AOE")
-    corrplot(cor(red), order = "FPC")
+  corrplot(cor(red), order = "AOE", tl.col = "black")
 ```
 
 # Methods
