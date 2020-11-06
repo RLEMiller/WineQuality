@@ -86,11 +86,52 @@ Neither data set contains `NA` values.
   sum(is.na(red))
   sum(is.na(white))
 ```
+Now that we have a basic understanding of the structures of the two data sets, we can combine them into a single data set. We can try to predict wine quality based on the physiochemical properties and the wine color category that we create when we join the two data sets.  We also will designate a hold-out subset and a test subset that we will use to develop the model. 
 
-
-```{r}
-  corrplot(cor(red), order = "AOE", tl.col = "black")
+```{r catRedWhite, message=FALSE, warning=FALSE}
+  # make new columns for the wine color or type
+  red <- red %>% mutate(red = 1)
+  white <- white %>% mutate(red = 0)
+  
+  # combine the two data frames into one
+  wines <- red %>% full_join(., white)
+  
+  # set the seed for reproducibility, user set.seed(1234) for R 3.5 or earlier
+  set.seed(1234, sample.kind="Rounding") 
+  
+  # use createDataPartition as in the Data Science course material
+  # set aside 10% of the data as a final test set, which we call hold_out
+  test_index <- createDataPartition(y = wines$quality, times = 1, 
+                                    p = 0.1, list = FALSE)
+  full_train <- wines[-test_index, ]
+  hold_out <- wines[test_index, ]
+  
+  # partition the data a second time to create test and train sets from the 
+  # full_train set
+  set.seed(1234, sample.kind="Rounding") 
+  test_index2 <- createDataPartition(y = full_train$quality, times = 1, 
+                                    p = 0.1, list = FALSE)
+  train <- full_train[-test_index2, ]
+  test <- full_train[test_index2, ]
+                        
 ```
+
+```{r correlationPlot, fig.cap="Plot of intercorrelation in the train set."}
+  # Make a correlation plot of the train set
+  corrplot(cor(train), order = "AOE", tl.col = "black")
+```
+We can also look at histograms of our variables in the `train` set to get some idea of the character of the data.
+
+```{r histograms, message=FALSE, warning=FALSE, fig.cap="Histograms of all the variables in the train set with the exception of the type variable that we created to keep track of white/red status."}
+  train %>%
+    select(-red) %>%
+    gather() %>%
+    ggplot(aes(value)) +
+      facet_wrap(~key, scales = "free", ncol = 3) +
+      geom_histogram()
+```
+
+We see that quality is approximately normally distributed
 
 # Methods
 
