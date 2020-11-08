@@ -35,7 +35,9 @@ knitr::opts_chunk$set(echo = TRUE, warning = FALSE, error = FALSE)
 
 # Introduction
 
-The data used in this analysis is from the University of California Irvine Machine Learning Repository, data set number 1341136, or the Wine Quality data set from "Modeling Wine Preferences by Data Mining from Physiochemical Properties." \footnote{P. Cortez, A. Cerdeira, F. Almeida, T. Matos and J. Reis. Modeling wine preferences by data mining from physicochemical properties. In Decision Support Systems, Elsevier, 47(4):547-553, 2009.} The data consists of eleven physiochemical properties and a quality score between 0 and 10 for each wine in the set. There are two subsets, both for Portuguese "vinho verde" wines, one for red wine and one for white wine. The most obvious machine learning task for this dataset is to use the physiochemical data as predictors and the quality score as the response variable, or in more direct language, to use the physiochemical properties to predict quality.
+The data used in this analysis is from the University of California Irvine Machine Learning Repository, data set number 1341136, or the Wine Quality data set from "Modeling Wine Preferences by Data Mining from Physiochemical Properties." \footnote{P. Cortez, A. Cerdeira, F. Almeida, T. Matos and J. Reis. Modeling wine preferences by data mining from physicochemical properties. In Decision Support Systems, Elsevier, 47(4):547-553, 2009.} The data consists of eleven physiochemical properties and a quality score between 0 and 10 for each wine in the set. There are two subsets, both for Portuguese "vinho verde" wines, one for red wine and one for white wine. The most obvious machine learning task for this dataset is to use the physiochemical data as predictors and the quality score as the response variable, or in more direct language, to use the physiochemical properties to predict quality. More succinctly
+
+Task: Predict good, bad and average wine based on physiochemical properties.
 
 ## Download Data
 The data set is available in two *.csv files found at [red](https://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/winequality-red.csv)
@@ -131,9 +133,83 @@ We can also look at histograms of our variables in the `train` set to get some i
       geom_histogram()
 ```
 
-We see that quality is approximately normally distributed
+We see that quality is approximately normally distributed, with few values in the set of {4,8} and most values in the set {5,6,7}. That is the expected result, with just a few very good wines and a few very bad ones.
+
+Other approximately normally distributed predictors include `chlorides`, `citric.acid`, `fixed.acidity`, `pH`, `sulphates`, and `volatile.acidity`. The remaining predictors are either bimodal, like `total.sulfur.dioxide` or are significantly skewed, as with `alcohol` content.
+
+With a basic grasp of the shape and size of our data, we can begin to construct models. Because `quality` is a continuous set of natural numbers, we can allow our prediction to be continuous, as well. Our predictions will be the continuous set for the range of the training set,
+```{r}
+range(train$quality)
+```
+We can therefore choose our loss function as something appropriate for continuous data. We will use Mean Absolute Error
+$$
+ MAE = \frac{1}{N}\sum_{i=1}^{N}\vert\hat{y}_{i} - y_i\vert
+$$
+which is a simple way to measure the magnitude of the prediction error and has the advantage, like RMSE, of being on the same scale as the data. We will use the following function to calculate $MAE$.
+
+```{r MAE, echo=TRUE}
+  MAE <- function(predicted, true){
+    error <- mean(abs(predicted - true))
+    return(error)
+  }
+```
 
 # Methods
+
+## The Single Value Model
+If we predict a single value for all of the wine quality, in a way very similar to the initial recommender model used in the MovieLens project, the minimum error will be the mean of the `quality` score for the entire `train` set.
+
+```{r mu, echo=TRUE}
+  mu <- mean(train$quality)
+```
+Then the error is
+```{r firstErrorMu, echo=TRUE}
+  MAE(test$quality, mu)
+```
+
+## Linear Model
+We missed the prediction by just over $\frac{2}{3}$ of a `quality` score, on average, but of course the largest misses are at the top and bottom of the scale. In other words, we failed to predict the best and worst wines. We defined our goal in terms of the task of predicting good, bad and mediocre wines, and the single value does a poor job of this. 
+
+If a single value does not perform well, we can next attempt to compute a linear combination of the available predictors, including wine type. We can use the `caret` package to create this initial model very quickly and easily.
+
+```{r LinearModel}
+  fit <- train(quality~., data=train, method="lm")
+  y_hat <- predict(fit, test)
+  MAE(test$quality, y_hat)
+```
+This is not a bad result, and does offer an improvement over a single value prediction, but if we take a look at the prediction, `y_hat`, versus the values in `test$quality`, we see that the linear predictor doesn't perform well at the ends of the `quality` scale, and those values are the ones we would most like to predict correctly.
+
+```{r fig.height=3, fig.cap="Plot of the linear model prediction for wine quality in the test set against the actual wine quality value."}
+  qplot(test$quality, y_hat)
+```
+
+If we look at the MAE for the best and worst wines, we see that indeed, the linear model performs worst at the ends of the quality scale. If we are trying to make a prediction for very good and very bad wines, this is not a fantastic model.
+
+```{r}
+MAE(test$quality[test$quality == 8], y_hat[test$quality == 8])
+MAE(test$quality[test$quality == 4], y_hat[test$quality == 4])
+```
+
+## Decision tree? Random forest? knn? kmeans?
+
+
+
+If we assign the factors "good", "mediocre", and "bad" based on the Tukey method for determining outliers, we get
+
+```{r TukeyOutliers}
+  # Third quartile, or 75% of data is less than this value, less 1.5 inter-quartile range
+  max_avg_quality <- quantile(train$quality, 0.75) + 1.5 * IQR(train$quality)
+  # First quartile, or 25% of data is less than this value, minus 1.5 inter-quartile range
+  min_avg_quality <- quantile(train$quality, 0.25) - 1.5 * IQR(train$quality)
+  
+  train <- train %>%
+    mutate(good = case_when(
+      quality > max_avg_quality ~ 1,
+      quality < min_avg_quality ~ 0,
+      TRUE ~ -1)
+    )
+    
+```
 
 # Results
 
