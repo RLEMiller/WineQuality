@@ -15,6 +15,7 @@ if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.
 if(!require(knitr)) install.packages("knitr", repos = "https://cran.us.r-project.org")
 if(!require(GGally)) install.packages("GGally", repos = "http://cran.us.r-project.org")
 if(!require(corrplot)) install.packages("corrplot", repos = "http://cran.us.r-project.org")
+if(!require(gam)) install.packages("gam", repos = "http://cran.us.r-project.org")
 
 library(knitr)
 library(tinytex)
@@ -23,6 +24,7 @@ library(caret)
 library(data.table)
 library(GGally)
 library(corrplot)
+library(gam)
 
 # don't show messages for tidy summarize() calls
 options(dplyr.summarise.inform = FALSE) 
@@ -124,7 +126,7 @@ Now that we have a basic understanding of the structures of the two data sets, w
 ```
 We can also look at histograms of our variables in the `train` set to get some idea of the character of the data.
 
-```{r histograms, message=FALSE, warning=FALSE, fig.cap="Histograms of all the variables in the train set with the exception of the type variable that we created to keep track of white/red status."}
+```{r histograms, echo = FALSE, message=FALSE, warning=FALSE, fig.cap="Histograms of all the variables in the train set with the exception of the type variable that we created to keep track of white/red status."}
   train %>%
     select(-red) %>%
     gather() %>%
@@ -157,7 +159,7 @@ which is a simple way to measure the magnitude of the prediction error and has t
 # Methods
 
 ## The Single Value Model
-If we predict a single value for all of the wine quality, in a way very similar to the initial recommender model used in the MovieLens project, the minimum error will be the mean of the `quality` score for the entire `train` set.
+If we predict a single value for all of the wine quality values, the minimum error will be the mean of the `quality` score for the entire `train` set.
 
 ```{r mu, echo=TRUE}
   mu <- mean(train$quality)
@@ -167,30 +169,145 @@ Then the error is
   MAE(test$quality, mu)
 ```
 
+```{r initializeResults}
+  results <- tibble(method = "Just the average", 
+                    MAE = MAE(test$quality, mu))
+
+  knitr::kable(results)
+```
+
 ## Linear Model
 We missed the prediction by just over $\frac{2}{3}$ of a `quality` score, on average, but of course the largest misses are at the top and bottom of the scale. In other words, we failed to predict the best and worst wines. We defined our goal in terms of the task of predicting good, bad and mediocre wines, and the single value does a poor job of this. 
 
 If a single value does not perform well, we can next attempt to compute a linear combination of the available predictors, including wine type. We can use the `caret` package to create this initial model very quickly and easily.
 
 ```{r LinearModel}
-  fit <- train(quality~., data=train, method="lm")
+  fit <- train(quality~., data = train, method="lm")
   y_hat <- predict(fit, test)
   MAE(test$quality, y_hat)
 ```
-This is not a bad result, and does offer an improvement over a single value prediction, but if we take a look at the prediction, `y_hat`, versus the values in `test$quality`, we see that the linear predictor doesn't perform well at the ends of the `quality` scale, and those values are the ones we would most like to predict correctly.
+
+```{r LinearModelResults}
+  results <- results %>% 
+    add_row(method = "Basic Linear Model, All Predictors", 
+            MAE = MAE(test$quality, y_hat))
+```
+
+This is not a bad result, and does offer an improvement over a single value prediction, but if we take a look at the prediction, `y_hat`, versus the values in `test$quality`, we see that the linear predictor doesn't perform well at the ends of the `quality` scale, and those values are the ones we would most like to predict correctly. Additionally, if we read the documentation for linear prediction with `caret`, we find that there are multiple pre-processing options. We can center, scale, replace predictors with the Principal Components via Principal Component Analysis (PCA), or replace with independent components. We can examine how pre-processing might improve our results.
 
 ```{r fig.height=3, fig.cap="Plot of the linear model prediction for wine quality in the test set against the actual wine quality value."}
   qplot(test$quality, y_hat)
 ```
 
-If we look at the MAE for the best and worst wines, we see that indeed, the linear model performs worst at the ends of the quality scale. If we are trying to make a prediction for very good and very bad wines, this is not a fantastic model.
+```{r preProcessedLinearModel}
+  # Re-do linear model with preprocessing
+  # first create the parameters for pre-processing by 
+    # subtracting the column means, dividing by standard deviation, and 
+    # computing the principal components
+  preProc <- train %>% 
+    select(-quality) %>% 
+    caret::preProcess( . , method = c("center", "scale", "pca"))
 
-```{r}
-MAE(test$quality[test$quality == 8], y_hat[test$quality == 8])
-MAE(test$quality[test$quality == 4], y_hat[test$quality == 4])
+  # Create transformed test and train sets
+  train_transformed <- predict(preProc, train)
+  test_transformed <- predict(preProc, test)
+  
+  # Re-train the linear model on the transformed data
+  fit <- train(quality~., data = train_transformed, method="lm")
+  y_hat <- predict(fit, test_transformed)
+  MAE(test_transformed$quality, y_hat)
+  
 ```
 
-## Decision tree? Random forest? knn? kmeans?
+With the transformation of our data via centering, scaling, and PCA we did improve the performance of the linear model. However, we see that the performance was still best in the mid-range of actual quality scores and poorest in the extremes of the range.
+
+```{r PreprocLinearResults, echo=FALSE}
+  results <- results %>% 
+    add_row(method = "Basic Linear Model, Centered, Scaled, PCA", 
+            MAE = MAE(test_transformed$quality, y_hat))
+```
+
+```{r LinearModelMAEvsQuality, fig.cap="Linear model of transformed test and train sets, MAE vs factorized quality. Shows best performance in the middle range and poor performance with both low and high actual quality scores.}
+  test_transformed %>% select(quality) %>%
+    mutate(factored_quality = as_factor(quality), y_hat = y_hat) %>%
+    group_by(factored_quality) %>% 
+    summarize(MAE = mean(abs(quality - y_hat))) %>%
+    ggplot(aes(factored_quality, MAE)) +
+      geom_point()
+
+```
+
+## K Nearest Neighbors Model
+
+We can try another model to see if we can improve our results in the extremes of the quality scale. We can approximate a higher-degree linear model with k-Nearest Neighbors. We can also examine if the pre-processing improves the effectiveness of kNN.
+
+```{r knnModel}
+  control <- trainControl(method = "cv", number = 10, p = 0.9)
+  fit <- train(quality ~ ., 
+               method = "knn",
+               data = train,
+               tuneGrid = data.frame(k = seq(2,40,2)),
+               trControl = control)
+  ggplot(fit, metric = "MAE", highlight = TRUE)
+  y_hat <- predict(fit, test)
+  MAE(test$quality, y_hat)
+  
+  fit_transformed <- train(quality ~ .,
+                           method = "knn",
+                           data = train_transformed,
+                           tuneGrid = data.frame(k = seq(2,40,2)),
+                           trControl = control)
+  ggplot(fit_transformed, highlight = TRUE)
+  y_hat_transf <- predict(fit_transformed, test_transformed)
+  MAE(test_transformed$quality, y_hat_transf)
+```
+
+```{r knnModelResults}
+  results <- results %>% 
+    add_row(method = "KNN Model, All Predictors", 
+            MAE = MAE(test$quality, y_hat))
+```
+
+## Random Forest
+
+```{r RandomForestModel}
+  fit <- train(quality ~ ., 
+               method = "rf",
+               ntree = 50,
+               data = train)
+  y_hat <- predict(fit, test)
+  MAE(test$quality, y_hat)
+```
+
+
+
+## General Additive Model
+
+The 
+
+```{r gamModel}
+  # Create a function to clip inputs so that the range fits within the given
+  # upper bounds (UB) and lower bounds (LB)
+  SimpleClip <- function(b,UB,LB){
+    b[b > UB] <- UB
+    b[b < LB] <- LB
+    return(b)
+  }
+
+  grid <- expand.grid(span = seq(0.15, 0.65, len = 10), degree = 1)
+  fit <- train(quality ~ ., 
+               method = "gamLoess",
+               tuneGrid = grid,
+               data = train)
+  y_hat <- SimpleClip(predict(fit, test), UB=10,LB=1)
+  MAE(test$quality, y_hat)
+```
+
+```{r GenAdditiveModelResults}
+  results <- results %>% 
+    add_row(method = "Generalized Additive Model, All Predictors", 
+            MAE = MAE(test$quality, y_hat))
+```
 
 
 
